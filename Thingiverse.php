@@ -11,16 +11,25 @@ class Thingiverse {
 		file_put_contents($this->log_path, $msg, FILE_APPEND);
 	}
 	
+	/* Helpers */
+	
 	public function get_range($start, $end, $get_files = true, $get_images = false) {
 		
 		$this->get_things(range($start,$end), $get_files, $get_images);
 	
 	}
 	
+	public function get_user_things($user, $last_id = false) {
+	
+		$this->get_list($last_id,  $user . '/things');
+	
+	}
+
 	public function get_things($thing_ids, $get_files = true, $get_images = false) {
+		$ttotal = 0;
 		foreach($thing_ids as $id) {
 			$tstart = time();
-			$ttotal = 0;
+			
 			if($this->get_thing($id, $get_files, $get_images)) {
 				echo 'Got thing '. $id;
 			} else {
@@ -36,58 +45,21 @@ class Thingiverse {
 		echo 'Total time: '. $ttotal . " sec \n";
 	}
 	
-	public function get_user_things($user, $last_id = false, $get_things = true, $get_files = true, $get_images = false) {
+	/* Main methods */
 	
-		$r = new HttpReq('http://www.thingiverse.com/' . $user . '/things');
-		$r->urlBase = 'http://www.thingiverse.com/' . $user . '/things';
-		$r->data = array();
-		$r->last_id = $last_id;
-		$r->attach('success', array($this, 'parse_things'));
-		$r->exec();
-		if($get_things && !empty($r->data)) {
-			$this->get_things(array_keys($r->data), $get_files, $get_images);
-		} else {
-			return $r->data;
-		}
-	
-	}
-	
-	public function get_newest($last_id) {
-		$type = 'newest';
+	public function get_list($last_id, $type = 'newest' ) {
+
 		
 		$r = new HttpReq('http://www.thingiverse.com/' . $type);
-		$r->urlBase = 'http://www.thingiverse.com/' . $type;
+		$r->list_type = $type;
 		$r->data = array();
 		$r->last_id = $last_id;
-		$r->attach('success', array($this, 'parse_things'));
+		$r->singleFail = true;
+		$r->attach('success', array($this, 'thing_list'));
+		$r->attach('fail', array($this, 'list_fail'));
 		$r->exec();
 	
 		return $r->data;
-	}
-	
-	public function parse_things($r) {
-		$stop = false;
-		
-		if(preg_match_all('@<a href="http://www.thingiverse.com/thing:([^"]+)">([^<]+)</a>@', $r->body, $things)) {
-			
-			foreach($things[1] as $k => $id) {
-				if($r->last_id && $r->last_id == $id) {
-					$r->keep = false;
-					$stop = true;
-					break;
-				} else {
-					$r->data[$id] = $things[2][$k];
-				}
-			}
-		}
-		
-		if(!$stop && preg_match('@/page:([0-9]+)">next@', $r->body, $page)) {
-			$r->keep = true;
-			$r->url = $r->urlBase . '/page:' . $page[1];
-		} else {
-			$r->keep = false;
-		}
-	
 	}
 	
 	public function get_thing($thing_id, $get_files = true, $get_images = false) {
@@ -170,8 +142,31 @@ class Thingiverse {
 		
 	}
 	
-	public function thing_fail($r, $msg) {
-		$this->log('thing '. $r->thing_id .' failed ' . $msg . "\n");
+	/* Parsing methods */
+	
+	public function thing_list($r) {
+		$stop = false;
+		
+		if(preg_match_all('@<a href="http://www.thingiverse.com/thing:([^"]+)">([^<]+)</a>@', $r->body, $things)) {
+			
+			foreach($things[1] as $k => $id) {
+				if($r->last_id && $r->last_id == $id) {
+					$r->keep = false;
+					$stop = true;
+					break;
+				} else {
+					$r->data[$id] = $things[2][$k];
+				}
+			}
+		}
+		
+		if(!$stop && preg_match('@/page:([0-9]+)">next@', $r->body, $page)) {
+			$r->keep = true;
+			$r->url = 'http://www.thingiverse.com/' . $r->list_type . '/page:' . $page[1];
+		} else {
+			$r->keep = false;
+		}
+	
 	}
 	
 	public function thing_meta($r) {
@@ -264,13 +259,20 @@ class Thingiverse {
 		
 		$r->data = $thing;
 	}
+	
+	/* Error handlers */
 
+	public function thing_fail($r, $msg) {
+		$this->log('thing '. $r->thing_id .' failed ' . $msg . "\n");
+	}
 
 	public function file_fail($r,$msg) {
 		$this->log('file ' . $r->file_id . ' failed ' . $msg . "\n");
 	}
 	
-
+	public function list_fail($r, $msg) {
+		$this->log('list '. $r->url .' failed ' . $msg . "\n");
+	}
 
 }
 
